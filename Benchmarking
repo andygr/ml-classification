@@ -17,7 +17,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 #Import Comet library and setup the experiment. This will require to install Code Carbon via Conda
 from comet_ml import Experiment  # isort:skip
-experiment = Experiment(api_key="eTwwugIyjmUtD7L37b8VkYKxD")
+experiment = Experiment(api_key="Need to enter the API key")
 
 # Data Preprocessing starts here
 # Python method to get a list of files and directories
