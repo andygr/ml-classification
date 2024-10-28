@@ -1,0 +1,169 @@
+# This code is using Floating Point of 32 with batch size 32 and 1024 neurons for the Dense layer 
+# Import libraries 
+import os
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import matplotlib.pyplot as plt
+import plotly.express as px
+import keras
+
+from tensorflow.keras.applications import InceptionV3
+from tensorflow.keras.layers import Conv2D,Add,MaxPooling2D, Dense, BatchNormalization,Input,Flatten, Dropout,GlobalMaxPooling2D,Lambda
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam,RMSprop
+from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras.preprocessing.image import ImageDataGenerator 
+
+#Import Comet library and setup the experiment. This will require to install Code Carbon via Conda
+from comet_ml import Experiment  # isort:skip
+experiment = Experiment(api_key="eTwwugIyjmUtD7L37b8VkYKxD")
+
+# Data Preprocessing starts here
+# Python method to get a list of files and directories
+os.listdir('C:\\Users\\andy\\Desktop\\Artefacts\\Dataset\\Classification\\Birds')
+
+# Define paths for training, test and validation
+train = 'C:\\Users\\andy\\Desktop\\Artefacts\\Dataset\\Classification\\Birds\\Train'
+validation = 'C:\\Users\\andy\\Desktop\\Artefacts\\Dataset\\Classification\\Birds\\Valid'
+test = 'C:\\Users\\andy\\Desktop\\Artefacts\\Dataset\\Classification\\Birds\\Test'
+
+# Create data generators
+# Rescale images so the mean is 0 and values range from 1 to -1. This is a normalisation
+train_datagen = ImageDataGenerator(rescale = 1./255) 
+valid_datagen = ImageDataGenerator(rescale = 1.0/255.)  
+test_datagen = ImageDataGenerator(rescale = 1.0/255.)  
+
+# Read images from folders, train, validation, test. Specify the image size, batch size which is the number of images
+# to be yielded from the generator per batch. Class mode can be binary for only two classes to predict, or categorical
+train_generator = train_datagen.flow_from_directory(train, target_size=(224,224),batch_size=32,class_mode='categorical')
+validation_generator = valid_datagen.flow_from_directory(validation, target_size=(224,224),batch_size=32,class_mode='categorical')
+test_generator = test_datagen.flow_from_directory(test, target_size=(224,224),batch_size=32,class_mode='categorical')
+
+# Load InceptionV3 image recognation model for the ImageNet which is a CNN model designed by Google for image classification
+# Include_top is about to include fully connected layer at the top as the last layer of the network. 
+# If include_top is false, then need to specify the input_shape for 3 inputs or depth and specific width and height
+inception = tf.keras.applications.InceptionV3(weights='imagenet',include_top=False,input_shape=(224,224,3))
+
+# Un-freeze the top layers of the model. Model name is inception
+# Fine tune from this layer onwards
+fine_tune_at = 197
+
+# Freeze all the layers before the `fine_tune_at` layer
+for layer in inception.layers[:fine_tune_at]:
+    layer.trainable =  False
+    
+# Check how many layers are in the base model
+print("Number of layers in the base model: ", len(inception.layers))
+
+# Get the last layer, which is the output layer 
+# None is the number of the batch size, after fitting the data will show the batch size
+# 12,12,768 is the height, width and depth of the specific layer
+last_layer = inception.get_layer('mixed7')
+print('The last layer output shape is: ', last_layer.output_shape)
+layer_output = last_layer.output
+
+# Get the number of categories
+n_categories = len(os.listdir('C:\\Users\\andy\\Desktop\\Artefacts\\Dataset\\Classification\\Birds\\Train'))
+print('The number of categories are:', n_categories)
+
+# x  = BatchNormalization()(layer_output) to speed up training and use higher learning rates
+# Convert multi-diensional array into flattened one-dimensional array
+x = Flatten()(layer_output)
+
+# Specify the Dense layer with number of neurons, activation parameter, for the layer's output
+# and the regularization method for the bias vector
+x = Dense(1024,activation='relu',kernel_regularizer=tf.keras.regularizers.l2(0.001))(x)
+
+# Randomly dropout technique to prevent Neural Network from Overfitting - Check Srivastava documentation
+x = Dropout(0.4)(x)
+
+# Specify the activation function
+x = Dense(n_categories, activation='softmax')(x)
+print('Outputs dtype: %s' % x.dtype.name)
+
+# Create the model grouping layers with the inputs of the model and the outputs
+model = Model(inputs=inception.inputs, outputs=x)
+
+# Set the training parameters and compile the model
+# Provide the name of the optimiser, the loss function and the metrics to be evaluated by the model
+# during training and testing
+model.compile(optimizer = RMSprop(learning_rate=0.0001), 
+              loss = 'categorical_crossentropy', 
+              metrics = ['accuracy'])
+
+# Learning rate scheduler
+# This function keeps the initial learning rate for the first ten epochs
+# and decreases it exponentially after that.
+def scheduler(epoch, lr):
+    if epoch < 10:
+        return lr
+    else:
+        return lr * tf.math.exp(-0.1)
+    
+callback = tf.keras.callbacks.LearningRateScheduler(scheduler)
+
+# Visualise the model
+# Must install pydot (`pip install pydot`) and 
+# install graphviz for plot_model to work.
+keras.utils.plot_model(model, "C:\\Users\\andy\\Desktop\\Artefacts\\Benchmarking\\Classification\\Visualise Model\\benchmarking_classification.png")
+
+# Before executing this command collect all power consumption data as well as utilisation and data from the wattmeter
+# and record in the Before Model Training table
+# After execuring the command to train the model, collect again all the power consumption data as well as utilisation and wattmeter
+# and record in the During Model Training table
+# Wait to reach the 5th epoch and then record the data because between 1 and 4 the PC still adjusting the hardware
+
+# Train the model by using the training and valid dataset for the duration of x amount of epochs
+# Will return the loss and accurancy 
+history = model.fit(
+            train_generator,
+            validation_data = validation_generator,
+            epochs = 25,
+callbacks=[callback])
+
+# Print the model summary
+print(model.summary())
+
+# Print out the training history
+results = pd.DataFrame(history.history)
+print(results)
+
+# Visualise the accuracy 
+fig = px.line(results,y=[results['accuracy'],results['val_accuracy']],template="seaborn",color_discrete_sequence=['#7F00FF','#00bfff'])
+fig.update_layout(   
+    title_font_color="#41BEE9", 
+    xaxis=dict(color="#41BEE9",title='Epochs'), 
+    yaxis=dict(color="#41BEE9")
+ )
+fig.show()
+
+# Visualise the loss
+fig = px.line(results,y=[results['loss'],results['val_loss']],template="seaborn",color_discrete_sequence=['#7F00FF','#00bfff'])
+fig.update_layout(   
+    title_font_color="#41BEE9", 
+    xaxis=dict(color="#41BEE9",title='Epochs'), 
+    yaxis=dict(color="#41BEE9")
+ )
+fig.show()
+
+# Save the model
+model.save('C:\\Users\\andy\\Desktop\\Artefacts\\Benchmarking\\Classification\\Model\\Base_model.h5')
+
+# Evaluate the model to check whether is best fit
+scores = model.evaluate(test_generator,verbose=0)
+print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores[1], 1 - scores[1]))
+
+# Model predictions
+# For training data
+pred_train= model.predict(train_generator)
+scores1 = model.evaluate(train_generator,verbose=0)
+print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores1[1], 1 - scores1[1]))   
+
+# For testing data
+pred_test= model.predict(test_generator)
+scores2 = model.evaluate(test_generator,verbose=0)
+print('Accuracy on test data: {}% \n Error on training data: {}'.format(scores2[1], 1 - scores2[1])) 
+
+# The output above shows the performance of the model on both training and test data. 
+# The higher the accuracy value, the better the model performance.
